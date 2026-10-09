@@ -1,11 +1,13 @@
-"""Explain: why did it move? Headlines from the spike window plus a two-sentence Claude summary.
+"""Explain: why did it move? Headlines from the spike window plus a two-sentence Gemini summary.
 
 News: GDELT DOC 2.0 API (free, no key; at most one request per 5 s, else HTTP 429).
   https://api.gdeltproject.org/api/v2/doc/doc?query=...&mode=artlist&format=json
       &startdatetime=YYYYMMDDHHMMSS&enddatetime=YYYYMMDDHHMMSS&maxrecords=25
 
-If ANTHROPIC_API_KEY is not set (or the call fails) we fall back to a plain
-template, so the dashboard always renders.
+LLM: Google Gemini API via the `google-genai` SDK (free tier, key from
+aistudio.google.com). If GEMINI_API_KEY is not set (or the call fails, is
+blocked, or comes back empty) we fall back to a plain template, so the
+dashboard always renders.
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ import time
 import httpx
 import pandas as pd
 
-from .config import CLAUDE_MODEL
+from .config import GEMINI_MODEL
 from .detect import Spike
 
 GDELT = "https://api.gdeltproject.org/api/v2/doc/doc"
@@ -69,38 +71,33 @@ A prediction market just moved:
 Headlines published around that window (may be empty or noisy):
 {headlines}
 
-In at most two sentences, say the most likely reason the odds moved, citing a headline if one fits.
-If none of the headlines plausibly explain it, say the cause is unclear from news so far. Do not invent facts."""
+Write a detailed explanation (a short paragraph of 4-6 sentences) of why the odds moved:
+1. The most likely catalyst, citing specific headlines (title and source) where they fit.
+2. How the shape of the move ({kind}) supports that reading, e.g. abrupt jump vs. slow drift, and its size.
+3. What it implies for the underlying event and for credit-sensitive exposure.
+If none of the headlines plausibly explain it, say the cause is unclear from news and give the most plausible hypotheses, clearly labelled as hypotheses. Do not invent facts."""
 
 
 def explain(spike: Spike, market_name: str, heads: list[dict], direction_note: str = "") -> str:
-    """Two-sentence 'why it moved'. Uses Claude if a key is configured, else a template."""
-    if not os.getenv("ANTHROPIC_API_KEY"):
+    """Two-sentence 'why it moved'. Uses Gemini if a key is configured, else a template."""
+    key = os.getenv("GEMINI_API_KEY")
+    if not key:
         return _fallback(heads)
     try:
-        import anthropic
+        from google import genai
 
-        client = anthropic.Anthropic()
+        client = genai.Client(api_key=key)
         lines = "\n".join(f"- [{h.get('seendate')}] {h.get('title')} ({h.get('domain')})" for h in heads) or "(none found)"
         prompt = PROMPT.format(
             market_name=market_name, headline=spike.headline(), kind=spike.kind, direction=spike.direction,
             start=spike.start, peak=spike.peak, direction_note=direction_note, headlines=lines,
         )
-        resp = client.beta.messages.create(
-            model=CLAUDE_MODEL,
-            max_tokens=1024,
-            output_config={"effort": "low"},
-            # On a policy decline, the API re-runs the request on a fallback model in the same call.
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
-            messages=[{"role": "user", "content": prompt}],
-        )
-        if resp.stop_reason == "refusal":
-            return _fallback(heads)
-        text = "".join(b.text for b in resp.content if b.type == "text").strip()
+        resp = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
+        # `text` is None when the response was blocked or has no text part.
+        text = (resp.text or "").strip()
         return text or _fallback(heads)
     except Exception as e:  # keep the demo alive whatever happens
-        return _fallback(heads, note=f"(explainer error: {type(e).__name__})")
+        return _fallback(heads, note=f"(explainer error: {type(e).__name__}: {str(e)[:200]})")
 
 
 def _fallback(heads: list[dict], note: str = "") -> str:
