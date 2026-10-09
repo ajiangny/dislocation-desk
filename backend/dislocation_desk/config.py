@@ -19,7 +19,8 @@ load_dotenv(REPO_ROOT / ".env")
 load_dotenv(ROOT / ".env")
 
 CACHE_PATH = Path(os.getenv("DD_CACHE_PATH") or DATA_DIR / "cache.duckdb")
-CLAUDE_MODEL = os.getenv("CLAUDE_MODEL") or "claude-opus-5-5"
+# A free-tier Flash model; the "-latest" alias tracks Google's current version.
+GEMINI_MODEL = os.getenv("GEMINI_MODEL") or "gemini-flash-lite-latest"
 # SEC asks every client to identify itself: "Name email@example.com"
 SEC_USER_AGENT = os.getenv("SEC_USER_AGENT") or ""
 

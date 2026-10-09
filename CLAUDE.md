@@ -17,7 +17,7 @@ detector write-up.
 # backend — run from backend/ (the .venv lives at the repo root)
 python -m venv .venv && source .venv/bin/activate
 pip install -r backend/requirements.txt
-cp .env.example .env                      # ANTHROPIC_API_KEY, SEC_USER_AGENT, optional CLAUDE_MODEL / DD_CACHE_PATH
+cp .env.example .env                      # GEMINI_API_KEY, SEC_USER_AGENT, optional GEMINI_MODEL / DD_CACHE_PATH
 cd backend
 pytest                                    # all tests (synthetic data only, no network)
 pytest tests/test_detect.py::test_fat_finger_does_not_fire -q   # one test
@@ -47,7 +47,7 @@ only the replay clock:
 
 ```
 Polymarket ─┐
-            ├─► ingest/ ─► DuckDB cache ─► detect.py ─┬─► explain.py (GDELT + Claude) ─┐
+            ├─► ingest/ ─► DuckDB cache ─► detect.py ─┬─► explain.py (GDELT + Gemini) ─┐
 Kalshi ─────┘                                 ▲       └─► expose.py  (EDGAR + ETF map) ┴─► api.py ─► frontend/src
                                               │
                               replay.py (demo clock; the frontend inlines
@@ -137,11 +137,12 @@ tests are in `src/lib/replay.ts`.
 ### External services and their failure mode
 
 Every outward call degrades instead of raising, because the demo must always render: `explain.explain()`
-falls back to a headline template without `ANTHROPIC_API_KEY` or on any exception; `explain.headlines()`
+falls back to a headline template without `GEMINI_API_KEY` or on any exception; `explain.headlines()`
 and `expose.edgar_companies()` return `[]` on HTTP or JSON errors (EDGAR also needs `SEC_USER_AGENT`).
-Keep that property. The Claude call uses `client.beta.messages.create` with
-`betas=["server-side-fallback-2026-07-01"]` and checks `stop_reason == "refusal"`; a refusal or empty
-response also falls back. The model defaults to `claude-opus-5-5` (override with `CLAUDE_MODEL`).
+Keep that property. The LLM is Google Gemini (free tier) via the `google-genai` SDK:
+`genai.Client(api_key=...).models.generate_content(model, contents=prompt)`; a blocked or empty response
+(`resp.text` is `None`) also falls back. The model defaults to `gemini-flash-lite-latest` (override with
+`GEMINI_MODEL`); free-tier quotas are a few requests per minute, which the per-alert caching keeps well under.
 GDELT rate-limits to one request per 5 seconds and answers a plain-text scolding (not JSON) when
 exceeded, which `headlines()` turns into `[]` — so bursts of alert cards can all show "Cause unclear".
 
@@ -158,7 +159,7 @@ explainer). Adding a market or an event type is a YAML edit, not a code change.
 read from the repo root first, then `backend/`. Both YAML loaders are `@lru_cache`'d, so a YAML edit
 needs a process restart to show up. Env vars resolve as `os.getenv(x) or default`, so the empty values
 in a copied `.env.example` fall through to the defaults (`DD_CACHE_PATH` → `backend/data/cache.duckdb`,
-`CLAUDE_MODEL` → `claude-opus-5-5`). Polymarket entries need `token_id` — the YES outcome's **CLOB
+`GEMINI_MODEL` → `gemini-flash-lite-latest`). Polymarket entries need `token_id` — the YES outcome's **CLOB
 token** (Gamma `clobTokenIds[0]`), not the market id or slug; Kalshi entries need both `series_ticker`
 and `ticker` because the candlesticks URL uses both.
 
