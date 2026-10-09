@@ -7,16 +7,16 @@ tolerance_min: 60
 
 events:
   - name: "TODO: FOMC decision day"
-    market: fed-dec-cut
+    market: fed-oct-cut
     time: "2025-12-10T19:00:00Z"
     expect_alert: true
 
   - name: "TODO: CPI release"
-    market: cpi-above
+    market: cpi-sep
     time: "2025-11-13T13:30:00Z"
     expect_alert: true
 
   - name: "TODO: quiet day control"
-    market: fed-dec-cut
+    market: fed-oct-cut
     time: "2025-11-20T15:00:00Z"
     expect_alert: false

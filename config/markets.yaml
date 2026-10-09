@@ -1,7 +1,7 @@
 # Markets Dislocation Desk watches.
 #
 # event_type links a market to config/exposure.yaml (who's exposed).
-# Fill in real IDs during the first hour; the ones below are placeholders.
+# IDs filled 2026-10-09 with the most-traded live contract per slot.
 #
 # Polymarket: `token_id` is the CLOB token ID for the YES outcome
 #   (Gamma API market -> clobTokenIds[0]), NOT the market id or slug.
@@ -10,40 +10,42 @@
 # Find candidates with:  python scripts/find_markets.py fed
 
 markets:
-  - id: fed-dec-cut
-    name: "Fed cuts rates at the December meeting"
+  - id: fed-oct-cut
+    name: "Fed cuts 25 bps at the October 2026 meeting"
     venue: polymarket
-    token_id: "TODO_CLOB_TOKEN_ID"
+    token_id: "33268510350568915228897273528353467773422190590579607471427765079749830445947"
     event_type: fed_rates
 
-  - id: kalshi-fed-dec
-    name: "Fed rate decision, December (Kalshi)"
+  - id: kalshi-fed-oct
+    name: "Fed upper bound above 4.00% after the October 2026 meeting (Kalshi)"
     venue: kalshi
     series_ticker: "KXFED"
-    ticker: "TODO_MARKET_TICKER"
+    ticker: "KXFED-26OCT-T4.00"
     event_type: fed_rates
 
-  - id: cpi-above
-    name: "CPI comes in above consensus"
+  - id: cpi-sep
+    name: "September 2026 CPI rises more than 0.5% (Kalshi)"
     venue: kalshi
     series_ticker: "KXCPI"
-    ticker: "TODO_MARKET_TICKER"
+    ticker: "KXCPI-26SEP-T0.5"
     event_type: inflation
 
   - id: tariffs
-    name: "New tariffs announced"
+    name: "Trump raises tariffs on Canada by October 31"
     venue: polymarket
-    token_id: "TODO_CLOB_TOKEN_ID"
+    token_id: "106274584635199268300198491197529827229467398908367234278985231598662709636224"
     event_type: tariffs
 
-  - id: shutdown
-    name: "Government shutdown"
-    venue: polymarket
-    token_id: "TODO_CLOB_TOKEN_ID"
-    event_type: shutdown
+  # shutdown: no clean live market as of 2026-10-09 (only compound "shutdown AND which party ..."
+  # contracts with ~$7/day volume). Re-enable when a plain shutdown market lists.
+  # - id: shutdown
+  #   name: "Government shutdown"
+  #   venue: polymarket
+  #   token_id: "TODO_CLOB_TOKEN_ID"
+  #   event_type: shutdown
 
   - id: recession
-    name: "US recession this year"
+    name: "US recession by end of 2026"
     venue: polymarket
-    token_id: "TODO_CLOB_TOKEN_ID"
+    token_id: "100379208559626151022751801118534484742123694725746262280150222742563282755057"
     event_type: recession
