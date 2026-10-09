@@ -9,10 +9,13 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent        # backend/
+REPO_ROOT = ROOT.parent
 CONFIG_DIR = ROOT / "config"
 DATA_DIR = ROOT / "data"
 
+# .env lives at the repo root (shared with the frontend); backend/.env also works.
+load_dotenv(REPO_ROOT / ".env")
 load_dotenv(ROOT / ".env")
 
 CACHE_PATH = Path(os.getenv("DD_CACHE_PATH") or DATA_DIR / "cache.duckdb")
