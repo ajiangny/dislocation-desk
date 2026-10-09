@@ -52,8 +52,11 @@ A prediction market just moved:
 Headlines published around that window (may be empty or noisy):
 {headlines}
 
-In at most two sentences, say the most likely reason the odds moved, citing a headline if one fits.
-If none of the headlines plausibly explain it, say the cause is unclear from news so far. Do not invent facts."""
+Write a detailed explanation (a short paragraph of 4-6 sentences) of why the odds moved:
+1. The most likely catalyst, citing specific headlines (title and source) where they fit.
+2. How the shape of the move ({kind}) supports that reading, e.g. abrupt jump vs. slow drift, and its size.
+3. What it implies for the underlying event and for credit-sensitive exposure.
+If none of the headlines plausibly explain it, say the cause is unclear from news and give the most plausible hypotheses, clearly labelled as hypotheses. Do not invent facts."""
 
 
 def explain(spike: Spike, market_name: str, heads: list[dict], direction_note: str = "") -> str:
@@ -71,7 +74,7 @@ def explain(spike: Spike, market_name: str, heads: list[dict], direction_note: s
         )
         resp = client.beta.messages.create(
             model=CLAUDE_MODEL,
-            max_tokens=1024,
+            max_tokens=2048,
             output_config={"effort": "low"},
             # On a policy decline, the API re-runs the request on a fallback model in the same call.
             betas=["server-side-fallback-2026-07-01"],
@@ -83,7 +86,7 @@ def explain(spike: Spike, market_name: str, heads: list[dict], direction_note: s
         text = "".join(b.text for b in resp.content if b.type == "text").strip()
         return text or _fallback(heads)
     except Exception as e:  # keep the demo alive whatever happens
-        return _fallback(heads, note=f"(explainer error: {type(e).__name__})")
+        return _fallback(heads, note=f"(explainer error: {type(e).__name__}: {str(e)[:200]})")
 
 
 def _fallback(heads: list[dict], note: str = "") -> str:
