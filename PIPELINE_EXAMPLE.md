@@ -9,7 +9,7 @@ until it appears as an alert card on screen.
 > **Real or illustrative?** The prices, volumes, scores and times below are real output from running
 > the detector on that practice market. Its data is computer-generated with known events planted in
 > it, which is why it makes a clean example. The real markets now being watched (listed under steps
-> 1–2) go through exactly the same steps. The headlines, the Claude explanation and the company list
+> 1–2) go through exactly the same steps. The headlines, the Gemini explanation and the company list
 > are made-up examples: in testing so far the news search and the SEC search haven't returned results.
 
 ---
@@ -21,7 +21,7 @@ flowchart LR
     A["1. DOWNLOAD<br/>Get the market's price<br/>for every minute,<br/>plus how much traded"]
     B["2. SAVE<br/>Store those rows<br/>in a file on<br/>this laptop"]
     C["3. SPOT<br/>Check every minute:<br/>did something<br/>unusual happen?"]
-    D["4. EXPLAIN<br/>Search the news<br/>from that time and<br/>ask Claude why"]
+    D["4. EXPLAIN<br/>Search the news<br/>from that time and<br/>ask Gemini why"]
     E["5. WHO'S AFFECTED<br/>Look up the funds<br/>and companies tied<br/>to this topic"]
     F["6. SHOW<br/>Draw the chart and<br/>an alert card on<br/>the dashboard"]
     A --> B --> C --> D --> E --> F
@@ -142,9 +142,9 @@ flowchart TD
     subgraph WHY ["Step 4: Why did it move?"]
         NEWS["Search the news index GDELT<br/>for 'Federal Reserve OR Powell'<br/>in articles published 22:39 to 00:24<br/>(1 hour before to 30 min after)"]
         HEADS["Headlines found<br/>illustrative: 'Fed official signals<br/>openness to December cut'"]
-        CLAUDE["Send Claude the move, the headlines<br/>and a note on what this topic means,<br/>and ask for the most likely reason"]
+        GEMINI["Send Gemini the move, the headlines<br/>and a note on what this topic means,<br/>and ask for the most likely reason"]
         REASON["Reason, in 1-2 sentences<br/>illustrative: 'Odds jumped after a<br/>Fed official backed a December cut'"]
-        NEWS --> HEADS --> CLAUDE --> REASON
+        NEWS --> HEADS --> GEMINI --> REASON
     end
 
     subgraph WHO ["Step 5: Who is affected?"]
@@ -159,7 +159,7 @@ flowchart TD
     ALERT --> TOPIC
 ```
 
-If there's no internet or no Claude key, step 4 shows the top headline or "Cause unclear", and step 5
+If there's no internet or no Gemini key, step 4 shows the top headline or "Cause unclear", and step 5
 shows only the fund list. The page never breaks.
 
 **What actually happens today:** the news search returned no articles in a manual test, and the SEC

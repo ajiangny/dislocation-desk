@@ -10,7 +10,7 @@ from dislocation_desk import api
 def client(tmp_path, monkeypatch):
     real_connect = api.cache.connect
     monkeypatch.setattr(api.cache, "connect", lambda path=None: real_connect(tmp_path / "c.duckdb"))
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setattr(api, "headlines", lambda q, s, e: [{"title": "Powell hints at cut", "url": "u", "domain": "d", "seendate": "x"}])
     monkeypatch.setattr(api.expose, "edgar_companies", lambda event_type, **kw: [{"company": "ACME", "filings": 3}])
     api._load.cache_clear()

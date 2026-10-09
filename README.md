@@ -16,7 +16,7 @@ move from the news in that window, and lists the credit ETFs and companies expos
 # backend (Python: ingest, detector, explain, expose, HTTP API)
 python -m venv .venv && source .venv/bin/activate
 pip install -r backend/requirements.txt
-cp .env.example .env            # add ANTHROPIC_API_KEY and SEC_USER_AGENT
+cp .env.example .env            # add GEMINI_API_KEY and SEC_USER_AGENT
 cd backend && pytest            # detector + API tests on synthetic data
 uvicorn dislocation_desk.api:app --reload --port 8000
 
@@ -53,7 +53,7 @@ tickers in `config/markets.yaml` are guesses too.
 
 ```
 Polymarket ─┐
-            ├─► 1. ingest ─► DuckDB cache ─► 2. detect ─┬─► 3. explain (GDELT + Claude) ─┐
+            ├─► 1. ingest ─► DuckDB cache ─► 2. detect ─┬─► 3. explain (GDELT + Gemini) ─┐
 Kalshi ─────┘                                  ▲        └─► 4. expose  (EDGAR + ETF map) ─┴─► 5. api ─► frontend
                                                │
                          replay clock (demo) ──┘   validation harness (proof slide)
@@ -63,7 +63,7 @@ Kalshi ─────┘                                  ▲        └─► 
 |---|---|---|---|
 | 1 | **Ingest**: price + volume into a local cache | `dislocation_desk/ingest/` | Written, not live-tested. Polymarket volume is a TODO |
 | 2 | **Detect**: jump + drift alerts | `dislocation_desk/detect.py` | **Working, tested** |
-| 3 | **Explain**: headlines in the window, Claude writes the "why" | `dislocation_desk/explain.py` | Written; falls back to a template without a key |
+| 3 | **Explain**: headlines in the window, Gemini writes the "why" | `dislocation_desk/explain.py` | Written; falls back to a template without a key |
 | 4 | **Expose**: event to ETFs + companies naming the risk in filings | `dislocation_desk/expose.py`, `config/exposure.yaml` | ETF map done; EDGAR search written, not live-tested |
 | 5 | **API**: markets, series, alerts, explain, exposure over HTTP | `dislocation_desk/api.py` | **Working, tested** |
 | 5 | **Dashboard**: chart, alert markers, alert cards, replay | `frontend/` (React + TypeScript) | **Working** on synthetic and cached data |
@@ -106,7 +106,7 @@ backend/
     api.py                    FastAPI app the frontend talks to (also serves frontend/dist)
     detect.py                 spike detector (jump + drift)
     ingest/                   polymarket.py, kalshi.py, cache.py (DuckDB)
-    explain.py                GDELT headlines + Claude "why"
+    explain.py                GDELT headlines + Gemini "why"
     expose.py                 ETF map + EDGAR full-text search
     replay.py                 replay clock (the frontend applies the same confirmed_at rule)
     validate.py               hit rate / false-alarm rate on known events
@@ -137,6 +137,6 @@ frontend/                     React 19 + TypeScript + Vite
   Prices in cents, includes volume. No auth for market data.
 - **GDELT DOC 2.0:** `api.gdeltproject.org/api/v2/doc/doc?mode=artlist&format=json&startdatetime=&enddatetime=`. No key.
 - **SEC EDGAR full-text search:** `efts.sec.gov/LATEST/search-index?q=...&forms=10-K`. Needs a `User-Agent` with a name and email.
-- **Claude API:** the explainer defaults to `claude-opus-5-5` at low effort (override with `CLAUDE_MODEL`) and
-  opts into server-side refusal fallbacks.
+- **Gemini API (free tier):** the explainer defaults to `gemini-flash-lite-latest` (override with `GEMINI_MODEL`).
+  Get a free key at aistudio.google.com/apikey.
 - **yfinance** (for the lead/lag stretch slide): 1-minute bars only cover about the last 7 days.
