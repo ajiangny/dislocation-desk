@@ -1,0 +1,39 @@
+# Hand-built map from event type to what a credit analyst would watch.
+# `etfs` are the quick read; `edgar_query` drives the EDGAR full-text search
+# that finds companies naming this risk in their filings.
+# `direction_note` is shown on the alert card and fed to the explainer.
+
+fed_rates:
+  label: "Fed policy / rates"
+  etfs: [TLT, IEF, HYG, LQD, KRE, XLF]
+  edgar_query: '"interest rate risk" "Federal Reserve"'
+  forms: [10-K, 10-Q]
+  direction_note: "Higher cut odds: duration (TLT) up, HY spreads tighter, regional banks' NIM under pressure."
+
+inflation:
+  label: "Inflation (CPI)"
+  etfs: [TIP, TLT, HYG, XLP, XRT]
+  edgar_query: '"inflation" "input costs" "pricing pressure"'
+  forms: [10-K]
+  direction_note: "Hotter CPI: fewer cuts priced, long bonds down, margin pressure on consumer names."
+
+tariffs:
+  label: "Trade / tariffs"
+  etfs: [XLI, XRT, SMH, HYG, EEM]
+  edgar_query: '"tariff" "supply chain"'
+  forms: [10-K]
+  direction_note: "Higher tariff odds: importers and retailers with thin margins most exposed."
+
+shutdown:
+  label: "Government shutdown"
+  etfs: [ITA, XAR, BIL]
+  edgar_query: '"government shutdown" "federal contracts"'
+  forms: [10-K]
+  direction_note: "Shutdown odds up: federal contractors and T-bill timing risk."
+
+recession:
+  label: "Recession risk"
+  etfs: [HYG, JNK, LQD, XLY, XLF]
+  edgar_query: '"economic downturn" "covenant"'
+  forms: [10-K]
+  direction_note: "Recession odds up: HY spreads wider, cyclicals and levered issuers hit first."

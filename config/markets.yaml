@@ -1,0 +1,49 @@
+# Markets Dislocation Desk watches.
+#
+# event_type links a market to config/exposure.yaml (who's exposed).
+# Fill in real IDs during the first hour; the ones below are placeholders.
+#
+# Polymarket: `token_id` is the CLOB token ID for the YES outcome
+#   (Gamma API market -> clobTokenIds[0]), NOT the market id or slug.
+# Kalshi: needs both `series_ticker` and `ticker`.
+#
+# Find candidates with:  python scripts/find_markets.py fed
+
+markets:
+  - id: fed-dec-cut
+    name: "Fed cuts rates at the December meeting"
+    venue: polymarket
+    token_id: "TODO_CLOB_TOKEN_ID"
+    event_type: fed_rates
+
+  - id: kalshi-fed-dec
+    name: "Fed rate decision, December (Kalshi)"
+    venue: kalshi
+    series_ticker: "KXFED"
+    ticker: "TODO_MARKET_TICKER"
+    event_type: fed_rates
+
+  - id: cpi-above
+    name: "CPI comes in above consensus"
+    venue: kalshi
+    series_ticker: "KXCPI"
+    ticker: "TODO_MARKET_TICKER"
+    event_type: inflation
+
+  - id: tariffs
+    name: "New tariffs announced"
+    venue: polymarket
+    token_id: "TODO_CLOB_TOKEN_ID"
+    event_type: tariffs
+
+  - id: shutdown
+    name: "Government shutdown"
+    venue: polymarket
+    token_id: "TODO_CLOB_TOKEN_ID"
+    event_type: shutdown
+
+  - id: recession
+    name: "US recession this year"
+    venue: polymarket
+    token_id: "TODO_CLOB_TOKEN_ID"
+    event_type: recession
