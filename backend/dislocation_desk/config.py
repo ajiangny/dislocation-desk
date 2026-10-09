@@ -15,8 +15,9 @@ CONFIG_DIR = ROOT / "config"
 DATA_DIR = ROOT / "data"
 
 # .env lives at the repo root (shared with the frontend); backend/.env also works.
-load_dotenv(REPO_ROOT / ".env")
-load_dotenv(ROOT / ".env")
+# override=True: an empty shell-level var must not shadow .env
+load_dotenv(REPO_ROOT / ".env", override=True)
+load_dotenv(ROOT / ".env", override=True)
 
 CACHE_PATH = Path(os.getenv("DD_CACHE_PATH") or DATA_DIR / "cache.duckdb")
 # A free-tier Flash model; the "-latest" alias tracks Google's current version.
