@@ -48,12 +48,58 @@ def test_jump_without_volume_is_damped():
     assert max((s.score for s in detect_jumps(thin, params=p)), default=0) < max(s.score for s in detect_jumps(loud, params=p))
 
 
+def _no_trades_except(df, bar, shares):
+    """A market where nobody normally trades: zero volume except `shares` at one bar."""
+    out = df.assign(volume=0.0)
+    out.iloc[bar, out.columns.get_loc("volume")] = shares
+    return out
+
+
+def test_thin_market_tiny_trade_does_not_confirm_a_jump():
+    jumped = add_jump(quiet_market(seed=1), at=700, size=0.9)
+    assert detect_jumps(_no_trades_except(jumped, 700, shares=5)) == []
+
+
+def test_thin_market_real_trade_still_confirms_a_jump():
+    jumped = add_jump(quiet_market(seed=1), at=700, size=0.9)
+    spikes = detect_jumps(_no_trades_except(jumped, 700, shares=500))
+    assert len(spikes) == 1
+    assert spikes[0].volume_ratio == 500 / DetectorParams().min_volume  # compared against the floor, not ~0
+
+
 def test_slow_drift_caught_by_cusum_not_jump():
     df = add_drift(quiet_market(seed=4), at=600, size=-0.8, over=300)
     assert detect_jumps(df) == []
     drifts = detect_drifts(df)
     assert drifts and drifts[0].direction == "down"
     assert df.index[600] <= drifts[0].peak <= df.index[1000]
+
+
+def test_drift_on_an_empty_market_does_not_fire():
+    df = add_drift(quiet_market(seed=4), at=600, size=-0.8, over=300).assign(volume=0.0)
+    assert detect_drifts(df) == []
+
+
+def test_drift_on_normal_volume_fires_with_its_volume_ratio():
+    df = add_drift(quiet_market(seed=4), at=600, size=-0.8, over=300)
+    drifts = detect_drifts(df)
+    assert drifts and drifts[0].volume_ratio > 0.8  # normal trading, not a surge, is enough for a drift
+
+
+def test_drift_without_any_volume_data_still_fires():
+    df = add_drift(quiet_market(seed=4), at=600, size=-0.8, over=300).assign(volume=float("nan"))
+    drifts = detect_drifts(df)
+    assert drifts and np.isnan(drifts[0].volume_ratio)
+
+
+def test_drift_card_starts_before_the_first_move():
+    # Flat at 30%, then one step to 50%: the CUSUM alarm fires on the step's own 15-min bar.
+    idx = pd.date_range("2025-12-10", periods=1440, freq="1min", tz="UTC")
+    df = pd.DataFrame({"price": np.where(np.arange(1440) < 1000, 0.3, 0.5), "volume": np.nan}, index=idx)
+    (d,) = detect_drifts(df)
+    assert d.start < d.peak
+    assert (d.p_before, d.p_after) == (0.3, 0.5)
+    assert d.headline().startswith("30% → 50% in 15 min")
 
 
 def test_demo_market_end_to_end():

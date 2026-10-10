@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { autoNewsQuery, fetchAlerts, fetchMarkets, fetchSeries } from "./api";
+import { autoNewsQuery, fetchAlerts, fetchEquitySeries, fetchExposure, fetchLeadLag, fetchMarkets, fetchSeries } from "./api";
 import AlertCard from "./components/AlertCard";
+import EquityChart from "./components/EquityChart";
 import MarketChart from "./components/MarketChart";
 import ReplayControls from "./components/ReplayControls";
 import Sidebar from "./components/Sidebar";
-import { alertKey, clamp, fmtClock, visibleAlerts } from "./lib/replay";
+import { alertKey, bestTicker, clamp, fmtClock, revealed, visibleAlerts } from "./lib/replay";
 import { useMarketSummaries } from "./lib/summaries";
 import { applyTheme, initialTheme, type Theme } from "./lib/theme";
-import type { AlertsResponse, DetectorInputs, Market, Series } from "./types";
+import type { Alert, AlertsResponse, DetectorInputs, EquitySeries, LeadLag, Market, Series } from "./types";
 
 const DEFAULT_PARAMS: DetectorInputs = {
   window: 15,
@@ -19,6 +20,21 @@ const DEFAULT_PARAMS: DetectorInputs = {
 /** At 1x a full replay lasts this long, whatever the market's length; Nx plays N times faster. */
 const REPLAY_MS_AT_1X = 60_000;
 const SPEEDS = [1, 2, 5, 10];
+
+/** A lead/lag result that compares timing, as opposed to "no equity move" / "no data". */
+function hasVerdict(ll: LeadLag): boolean {
+  return ll.verdict !== "no equity move" && ll.verdict !== "no data";
+}
+
+/** Do any ETF bars fall inside the market series' window? */
+function overlaps(equity: EquitySeries, series: Series): boolean {
+  const lo = Date.parse(series.ts[0]!);
+  const hi = Date.parse(series.ts[series.ts.length - 1]!);
+  return equity.ts.some((t) => {
+    const ms = Date.parse(t);
+    return ms >= lo && ms <= hi;
+  });
+}
 
 /** `?market=<id>` makes a demo day linkable; falls back to the first cached market. */
 function marketFromUrl(): string {
@@ -51,6 +67,14 @@ export default function App() {
     key: string;
     at: { x: number; y: number };
   } | null>(null);
+
+  // Lead/lag panel: the event type's ETFs, the one on screen, its bars, and each visible alert's result.
+  const [etfs, setEtfs] = useState<string[]>([]);
+  const [etf, setEtf] = useState<string>("");
+  const [etfPicked, setEtfPicked] = useState(false);
+  const [equity, setEquity] = useState<EquitySeries | null>(null);
+  const [equityNote, setEquityNote] = useState<string | null>(null);
+  const [leadlags, setLeadLags] = useState<Record<string, LeadLag>>({});
 
   useEffect(() => applyTheme(theme), [theme]);
 
@@ -139,6 +163,83 @@ export default function App() {
   const selected = picked
     ? alerts.find((a) => alertKey(a) === picked.key)
     : undefined;
+
+  // The alert whose timing the ETF panel shows: the clicked one; else the latest visible alert with a
+  // revealed comparison verdict; else the latest with any revealed result; else the latest visible
+  // (its row reads "Watching ETFs…").
+  const revealedFor = (a: Alert): LeadLag | undefined => {
+    const ll = leadlags[alertKey(a)];
+    return ll !== undefined && revealed(ll.confirmed_at, now) ? ll : undefined;
+  };
+  const newestFirst = [...alerts].reverse();
+  const focusAlert =
+    selected ??
+    newestFirst.find((a) => {
+      const ll = revealedFor(a);
+      return ll !== undefined && hasVerdict(ll);
+    }) ??
+    newestFirst.find((a) => revealedFor(a) !== undefined) ??
+    alerts[alerts.length - 1];
+  const leadlag = focusAlert ? (leadlags[alertKey(focusAlert)] ?? null) : null;
+
+  // ETF list for the market's event type (memoised in api.ts); reset the pick on market change.
+  useEffect(() => {
+    if (!market) return;
+    let live = true;
+    setEtfPicked(false);
+    fetchExposure(market.event_type)
+      .then((x) => {
+        if (!live) return;
+        setEtfs(x.etfs);
+        setEtf((cur) => (x.etfs.includes(cur) ? cur : (x.etfs[0] ?? "")));
+      })
+      .catch((e: Error) => live && setEquityNote(e.message));
+    return () => {
+      live = false;
+    };
+  }, [market]);
+
+  // Lead/lag for every visible alert (a handful per market; the API caches per spike and api.ts
+  // memoises per alert). Keyed on the set of visible alert keys, not the array, so replay frames
+  // do not re-run it; guarded on the alerts belonging to the current market.
+  useEffect(() => setLeadLags({}), [marketId]);
+  const visibleKeys = useMemo(() => alerts.map(alertKey).join("|"), [alerts]);
+  useEffect(() => {
+    if (!market || alertsResp?.market_id !== market.id) return;
+    const pending = alerts.filter((a) => !leadlags[alertKey(a)]);
+    if (pending.length === 0) return;
+    let live = true;
+    for (const a of pending) {
+      const key = alertKey(a);
+      fetchLeadLag(market.id, a)
+        .then((r) => live && setLeadLags((cur) => (cur[key] ? cur : { ...cur, [key]: r })))
+        .catch(() => undefined);
+    }
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [market, alertsResp, visibleKeys, leadlags]);
+
+  // Unless the user picked an ETF, follow the one that reacted most once a verdict is revealed. A
+  // lone reaction under "no equity move" is not followed: it is the false alarm the verdict guards against.
+  const leadlagRevealed = leadlag !== null && revealed(leadlag.confirmed_at, now);
+  useEffect(() => {
+    if (etfPicked || !leadlagRevealed || !leadlag || !hasVerdict(leadlag)) return;
+    setEtf((cur) => bestTicker(leadlag.reactions, cur));
+  }, [etfPicked, leadlagRevealed, leadlag]);
+
+  // The ETF's bars.
+  useEffect(() => {
+    if (!marketId || !etf) return;
+    const ctl = new AbortController();
+    setEquity(null);
+    setEquityNote(null);
+    fetchEquitySeries(marketId, etf, ctl.signal)
+      .then((s) => setEquity(s))
+      .catch((e: Error) => e.name !== "AbortError" && setEquityNote(e.message));
+    return () => ctl.abort();
+  }, [marketId, etf]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setPicked(null);
@@ -230,6 +331,7 @@ export default function App() {
                     alert={selected}
                     market={market}
                     newsQuery={newsQuery}
+                    now={now}
                     onClose={() => setPicked(null)}
                   />
                 </div>
@@ -252,6 +354,31 @@ export default function App() {
               alert(s) so far
               {alertsResp === null && " · running detector…"}
             </div>
+            {equity && series.ts.length > 0 && overlaps(equity, series) ? (
+              <EquityChart
+                series={equity}
+                now={now}
+                range={[series.ts[0]!, series.ts[series.ts.length - 1]!]}
+                tickers={etfs}
+                ticker={etf}
+                onTicker={(t) => {
+                  setEtfPicked(true);
+                  setEtf(t);
+                }}
+                focus={focusAlert ? { alert: focusAlert, leadlag, revealed: leadlagRevealed } : undefined}
+                theme={theme}
+              />
+            ) : (
+              <div className="caption">
+                {equityNote
+                  ? `ETF panel: ${equityNote}`
+                  : equity
+                    ? `ETF panel: no ${etf} bars cached for this window (run scripts/pull_data.py)`
+                    : etf
+                      ? `Loading ${etf}…`
+                      : "ETF panel: no exposure configured for this market"}
+              </div>
+            )}
           </>
         )}
       </main>
