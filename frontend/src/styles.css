@@ -12,6 +12,7 @@
   --series-1: #2a78d6;
   --status-critical: #d03b3b;
   --status-warning: #fab219;
+  --status-ok: #2f9e62;
   --wash-jump: rgba(208, 59, 59, 0.14);
   --wash-drift: rgba(250, 178, 25, 0.2);
   --accent: var(--series-1);
@@ -113,6 +114,17 @@ button, input, select {
 .card details ul { margin: 6px 0 0; padding-left: 18px; }
 .card .pending { color: var(--muted); font-style: italic; }
 .chips { display: inline-flex; flex-wrap: wrap; gap: 4px; vertical-align: middle; }
+.chip.ok { border-color: var(--status-ok); }
+.chip.bad { border-color: var(--status-critical); }
+.chip.quiet { color: var(--muted); }
+.chip.pick { cursor: pointer; }
+.chip.pick:hover { border-color: var(--ink-2); }
+.chip.pick.active { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+.chart.equity { height: 300px; display: flex; flex-direction: column; }
+.chart.equity > .equity-head { height: auto; flex: none; }
+.chart.equity > div:last-child { flex: 1; min-height: 0; }
+.equity-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding: 6px 10px 2px; font-size: 13px; }
+.equity-head .verdict { font-weight: 600; }
 .chip {
   padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border);
   font-size: 12px; font-variant-numeric: tabular-nums; background: var(--page);
@@ -125,6 +137,7 @@ button, input, select {
   .controls { grid-template-columns: 1fr 1fr; }
   .controls input[type="range"] { grid-column: 1 / -1; }
   .chart { height: 380px; }
+  .chart.equity { height: 240px; }
 }
 
 .overview { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }

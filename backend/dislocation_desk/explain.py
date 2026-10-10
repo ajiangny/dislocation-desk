@@ -1,6 +1,6 @@
 """Explain: why did it move? Headlines from the spike window plus a two-sentence Gemini summary.
 
-News: GDELT DOC 2.0 API (free, no key). Docs-verified, not live-tested.
+News: GDELT DOC 2.0 API (free, no key; at most one request per 5 s, else HTTP 429).
   https://api.gdeltproject.org/api/v2/doc/doc?query=...&mode=artlist&format=json
       &startdatetime=YYYYMMDDHHMMSS&enddatetime=YYYYMMDDHHMMSS&maxrecords=25
 
@@ -13,6 +13,7 @@ dashboard always renders.
 from __future__ import annotations
 
 import os
+import time
 
 import httpx
 import pandas as pd
@@ -21,6 +22,22 @@ from .config import GEMINI_MODEL
 from .detect import Spike
 
 GDELT = "https://api.gdeltproject.org/api/v2/doc/doc"
+GDELT_MIN_INTERVAL = 5.5  # GDELT answers 429 to more than one request per 5 s
+_gdelt_last_call = 0.0
+
+
+def _gdelt_get(params: dict) -> httpx.Response:
+    """GET GDELT no faster than its rate limit allows, retrying once on a 429."""
+    global _gdelt_last_call
+    for attempt in range(2):
+        wait = _gdelt_last_call + GDELT_MIN_INTERVAL - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        r = httpx.get(GDELT, params=params, timeout=20)
+        _gdelt_last_call = time.monotonic()
+        if r.status_code != 429:
+            break
+    return r
 
 
 def headlines(query: str, start: pd.Timestamp, end: pd.Timestamp, limit: int = 15) -> list[dict]:
@@ -31,7 +48,7 @@ def headlines(query: str, start: pd.Timestamp, end: pd.Timestamp, limit: int = 1
         "startdatetime": start.strftime(fmt), "enddatetime": end.strftime(fmt), "maxrecords": limit,
     }
     try:
-        r = httpx.get(GDELT, params=params, timeout=20)
+        r = _gdelt_get(params)
         r.raise_for_status()
         arts = r.json().get("articles", [])
     except (httpx.HTTPError, ValueError):
