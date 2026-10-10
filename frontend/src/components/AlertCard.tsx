@@ -8,9 +8,11 @@ interface Props {
   alert: Alert;
   market: Market;
   newsQuery: string;
+  /** When set, the card is shown as a popover on the chart: adds a close button and opens the news. */
+  onClose?: () => void;
 }
 
-export default function AlertCard({ alert, market, newsQuery }: Props) {
+export default function AlertCard({ alert, market, newsQuery, onClose }: Props) {
   const [why, setWhy] = useState<Explanation | null>(null);
   const [exposure, setExposure] = useState<Exposure | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,6 +44,11 @@ export default function AlertCard({ alert, market, newsQuery }: Props) {
 
   return (
     <article className="panel card">
+      {onClose && (
+        <button className="close" onClick={onClose} aria-label="Close">
+          ✕
+        </button>
+      )}
       <div className="title">
         <span className={`tag ${alert.kind}`}>{alert.kind.toUpperCase()}</span>
         <strong>{market.name}</strong> — {alert.headline}
@@ -70,7 +77,7 @@ export default function AlertCard({ alert, market, newsQuery }: Props) {
         {alert.score.toFixed(1)} · held {pct(alert.persistence)}
       </div>
       {why && why.headlines.length > 0 && (
-        <details>
+        <details open={Boolean(onClose)}>
           <summary>{why.headlines.length} headlines in window</summary>
           <ul>
             {why.headlines.map((h) => (
