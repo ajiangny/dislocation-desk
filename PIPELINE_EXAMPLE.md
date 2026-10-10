@@ -52,7 +52,7 @@ live markets:
 
 | Market | Venue | Has volume? | Topic |
 |---|---|---|---|
-| Fed cuts 25 bps at the October 2026 meeting | Polymarket | Yes | Fed rates |
+| Fed leaves rates unchanged at the October 2026 meeting | Polymarket | Yes | Fed rates |
 | Fed upper bound above 4.00% after the October 2026 meeting | Kalshi | Yes | Fed rates |
 | September 2026 CPI rises more than 0.5% | Kalshi | Yes | Inflation |
 | Trump raises tariffs on Canada by October 31 | Polymarket | Yes | Tariffs |

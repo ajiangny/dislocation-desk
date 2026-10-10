@@ -10,10 +10,12 @@
 # Find candidates with:  python scripts/find_markets.py fed
 
 markets:
-  - id: fed-oct-cut
-    name: "Fed cuts 25 bps at the October 2026 meeting"
+  # "No change" is the live contract: the cut/hike legs all trade under 1% and never reprice.
+  # YES = Fed holds, so a *falling* price here means rising cut (or hike) odds.
+  - id: fed-oct-hold
+    name: "Fed leaves rates unchanged at the October 2026 meeting"
     venue: polymarket
-    token_id: "33268510350568915228897273528353467773422190590579607471427765079749830445947"
+    token_id: "111061902544814266207267295505639408607400625795891618462682726460921782993748"
     event_type: fed_rates
 
   - id: kalshi-fed-oct

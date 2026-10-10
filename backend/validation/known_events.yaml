@@ -7,7 +7,7 @@ tolerance_min: 60
 
 events:
   - name: "TODO: FOMC decision day"
-    market: fed-oct-cut
+    market: fed-oct-hold
     time: "2025-12-10T19:00:00Z"
     expect_alert: true
 
@@ -17,7 +17,7 @@ events:
     expect_alert: true
 
   - name: "TODO: quiet day control"
-    market: fed-oct-cut
+    market: fed-oct-hold
     time: "2025-11-20T15:00:00Z"
     expect_alert: false
 
