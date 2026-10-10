@@ -2,6 +2,19 @@ import type { Alert, AlertsResponse, DetectorInputs, Explanation, Exposure, Mark
 
 export const DEFAULT_NEWS_QUERY = '"Federal Reserve" OR Powell';
 
+/** News search used for a market's "why" when the user hasn't typed an override. */
+const NEWS_QUERY_BY_EVENT: Record<string, string> = {
+  fed_rates: DEFAULT_NEWS_QUERY,
+  inflation: 'CPI OR inflation OR "consumer prices"',
+  tariffs: "tariffs OR tariff OR Canada trade",
+  recession: 'recession OR "jobs report" OR GDP',
+  shutdown: '"government shutdown" OR "spending bill"',
+};
+
+export function autoNewsQuery(eventType: string | undefined): string {
+  return (eventType && NEWS_QUERY_BY_EVENT[eventType]) || DEFAULT_NEWS_QUERY;
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const r = await fetch(url, init);
   if (!r.ok) {

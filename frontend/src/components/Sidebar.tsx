@@ -6,7 +6,9 @@ interface Props {
   onMarket: (id: string) => void;
   params: DetectorInputs;
   onParams: (p: DetectorInputs) => void;
+  /** User override; empty means the market's automatic query is used. */
   newsQuery: string;
+  autoQuery: string;
   onNewsQuery: (q: string) => void;
   speed: number;
   onSpeed: (s: number) => void;
@@ -44,7 +46,12 @@ export default function Sidebar(p: Props) {
   const set = (patch: Partial<DetectorInputs>) => p.onParams({ ...p.params, ...patch });
   return (
     <aside className="sidebar">
-      <label className="field">
+      <div className="brand">
+        <h1>Dislocation Desk</h1>
+        <p>Which event odds just broke, why, and which names are exposed.</p>
+      </div>
+
+      <label className="field market-field">
         <span>Market</span>
         <select value={p.marketId} onChange={(e) => p.onMarket(e.target.value)}>
           {p.markets.map((m) => (
@@ -77,14 +84,21 @@ export default function Sidebar(p: Props) {
         onChange={(v) => set({ vol_min_ratio: v })}
       />
 
-      <h2>Explain</h2>
-      <label className="field">
-        <span>News query for this market</span>
-        <input type="text" value={p.newsQuery} onChange={(e) => p.onNewsQuery(e.target.value)} />
-      </label>
+      <details className="advanced">
+        <summary>Advanced: news search</summary>
+        <label className="field">
+          <span>Override query (blank = automatic)</span>
+          <input
+            type="text"
+            value={p.newsQuery}
+            placeholder={p.autoQuery}
+            onChange={(e) => p.onNewsQuery(e.target.value)}
+          />
+        </label>
+      </details>
 
       <h2>Replay</h2>
-      <Slider label="Speed (bars per tick)" value={p.speed} min={1} max={60} onChange={p.onSpeed} />
+      <Slider label="Speed" value={p.speed} min={1} max={10} format={(v) => `${v}×`} onChange={p.onSpeed} />
     </aside>
   );
 }
