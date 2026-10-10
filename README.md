@@ -61,7 +61,7 @@ Kalshi ─────┘                                  ▲        └─► 
 
 | # | Component | File | Status |
 |---|---|---|---|
-| 1 | **Ingest**: price + volume into a local cache | `dislocation_desk/ingest/` | Written, not live-tested. Polymarket volume is a TODO |
+| 1 | **Ingest**: price + volume into a local cache | `dislocation_desk/ingest/` | Live-tested on both venues; Polymarket volume comes from the Data API trades feed |
 | 2 | **Detect**: jump + drift alerts | `dislocation_desk/detect.py` | **Working, tested** |
 | 3 | **Explain**: headlines in the window, Gemini writes the "why" | `dislocation_desk/explain.py` | Written; falls back to a template without a key |
 | 4 | **Expose**: event to ETFs + companies naming the risk in filings | `dislocation_desk/expose.py`, `config/exposure.yaml` | ETF map done; EDGAR search written, not live-tested |
@@ -77,14 +77,15 @@ Runs on a 1-minute grid per market.
 | Test | How | Why |
 |---|---|---|
 | **Big?** | Price to log-odds, `logit(p) = ln(p/(1-p))`, smoothed with a 5-bar rolling median. Change over a 15-min window, scored as a **robust z**: `(Δ − rolling median) / (1.4826 × rolling MAD)` over the past 4 h | Log-odds makes 2%→6% count as much as it should. Median/MAD aren't distorted by earlier spikes. The smoothing means a 1-2 bar stray print can't be either end of a move |
-| **Real money?** | Window volume ÷ its usual level. No excess volume earns 0, 2× or more earns full credit | Filters a single small trade moving a thin book |
+| **Real money?** | Window volume ÷ its usual level, with "usual" floored at 100 shares/contracts. No excess volume earns 0, 2× or more earns full credit | Filters a single small trade moving a thin book; the floor stops a market that usually trades nothing from crediting any one trade |
 | **Sticks?** | Share of the move still in place 30 min later (0 to 1) | Filters fat-finger prints that revert |
 
 `score = |robust z| × volume confirmation × persistence`; alert when `score ≥ 4`, with a 60-min cooldown.
 
 **Drift alerts:** a two-sided **CUSUM** on standardized 15-minute log-odds changes catches slow grinds
 that never have one big jump. Its reference mean is zero (a fair market price shouldn't drift), so the
-trend isn't absorbed into a rolling baseline.
+trend isn't absorbed into a rolling baseline. A drift also needs real trading behind it, but only its
+usual amount rather than a surge: a grind on a market where nobody is trading doesn't fire.
 
 **No look-ahead in the demo:** the persistence check needs 30 minutes of future data, so every alert
 carries `confirmed_at`, and the replay only shows an alert once the clock passes that time.
@@ -123,7 +124,7 @@ frontend/                     React 19 + TypeScript + Vite
 
 ## Suggested split (4 people)
 
-1. **Ingest + cache:** smoke test, real market IDs, Polymarket volume via trades, pull the demo days.
+1. **Ingest + cache:** smoke test, real market IDs, pull the demo days.
 2. **Detector + validation:** tune on real data, fill `known_events.yaml` with 5-10 events and quiet days, produce the hit-rate number.
 3. **Dashboard (`frontend/`):** polish the alert card and replay; pick the demo day.
 4. **Explain + expose + slides:** news query per market, prompt tuning, cache EDGAR results per event type.
@@ -132,7 +133,8 @@ frontend/                     React 19 + TypeScript + Vite
 
 - **Polymarket:** Gamma `gamma-api.polymarket.com/markets` to find markets; CLOB
   `clob.polymarket.com/prices-history?market=<token_id>&startTs=&endTs=&fidelity=1`. `market` is the
-  **CLOB token ID**, not the market id or slug. No volume in this endpoint.
+  **CLOB token ID**, not the market id or slug. No volume in this endpoint, so volume comes from the Data API
+  `data-api.polymarket.com/trades?market=<conditionId>&start=&end=&limit=` (both outcomes, summed per minute).
 - **Kalshi:** `api.elections.kalshi.com/trade-api/v2/series/{series}/markets/{ticker}/candlesticks?start_ts=&end_ts=&period_interval=1`.
   Prices in cents, includes volume. No auth for market data.
 - **GDELT DOC 2.0:** `api.gdeltproject.org/api/v2/doc/doc?mode=artlist&format=json&startdatetime=&enddatetime=`. No key.

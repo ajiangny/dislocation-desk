@@ -61,8 +61,13 @@ Two contracts hold the pipeline together, and most changes should preserve them:
    returns nothing. `ingest.to_grid()` puts it on a 1-minute grid: price is last-in-bucket then
    forward-filled, volume is summed per bucket. An all-NaN volume column survives the grid as all-NaN,
    and that is how `detect.score_series` recognises a volume-free series and treats it as neutral
-   (`vol_conf = 1.0`) rather than failing. Only Polymarket is ever volume-free (`prices-history` has
-   neither volume nor cents); Kalshi quotes dollar strings and fills a missing candle volume with 0, not NaN.
+   (`vol_conf = 1.0`) rather than failing. No live venue is volume-free any more; the neutral path remains
+   for old cached rows and hand-built frames. Kalshi quotes dollar strings and fills a missing candle
+   volume with 0, not NaN. Polymarket's `prices-history` has no volume, so `polymarket.history()` merges in
+   the Data API `/trades` feed (keyed by the market's `conditionId`, looked up from the token via Gamma):
+   price rows carry volume 0 and trade rows carry NaN price, and `to_grid` resolves both (`last()` skips
+   the NaN prices). Volume is shares traded on *both* outcomes, the same unit as Kalshi contracts. The
+   trades feed is paged backwards by `end` because offsets past ~10k return nothing, and 429s are retried.
    `ingest/cache.py` persists the grid as `bars(market_id, ts, price, volume)` with
    `PRIMARY KEY (market_id, ts)` and `INSERT OR REPLACE`, so re-pulling an overlapping window overwrites
    rather than duplicates; `market_id` is the `id` from `markets.yaml` (there is no venue column).
@@ -99,6 +104,11 @@ knowing before editing it:
 - `detect_drifts` is a separate two-sided **CUSUM** over 15-minute bars, for grinds with no single big
   bar. Its reference mean is **zero on purpose** — a rolling baseline would absorb the very trend it is
   meant to catch. `detect()` drops drift alerts that overlap a jump alert.
+- Drifts check volume differently from jumps. A jump needs a *surge* (`vol_min_ratio`× usual for full
+  credit); a drift needs only its *usual* volume over its span (ratio ≥ 1 → full credit), because a grind
+  trades at a normal pace — `add_drift` in `synthetic.py` keeps volume normal on purpose. Both floor
+  "usual" at `min_volume` per `window`. A drift fires when CUSUM level × credit ≥ `cusum_h`, so an
+  under-traded grind fires later rather than never, and a volume-free series keeps credit 1.
 - **Dead zones at both ends of a series.** The lagged median/MAD needs `baseline/2` (= 120) bars, so the
   first ~135 bars can never fire — which is why the frontend's "Play from start" rewinds to
   `params.baseline` (240, taken from the alerts response), not 0. Persistence is measured at exactly one
@@ -182,7 +192,9 @@ locally as of 2026-10-09 (`backend/data/cache.duckdb` is gitignored; re-pull wit
 
 Not yet live-verified: `explain.headlines` returned no articles in a manual probe (GDELT rate limit or
 query shape, unclear), `expose.edgar_companies` has returned `[]` so far, `validation/known_events.yaml`
-holds TODO events, and `polymarket.trades_volume()` raises `NotImplementedError` (until it lands,
-Polymarket markets get no volume confirmation). Known cosmetic issue: `Spike.headline()` formats
-prices with `.0%`, so a sub-1% market reads "1% → 0%", and a window whose usual volume is ~0 prints an
-absurd `×volume` ratio (the `1e-9` clip in `score_series`).
+holds TODO events. Polymarket volume (`trades_volume`) is live-tested as of 2026-10-09. Trading is
+bursty: on every live market the *median* 15-minute window has zero volume, so `DetectorParams.min_volume`
+(100 shares/contracts) floors the "usual" level; without it any single trade earned full `vol_conf`.
+On a thin market like `tariffs` (391 shares in a week) neither jumps nor drifts fire any more.
+Known cosmetic issue: `Spike.headline()` formats
+prices with `.0%`, so a sub-1% market reads "1% → 0%".

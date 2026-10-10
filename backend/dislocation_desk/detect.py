@@ -31,6 +31,7 @@ class DetectorParams:
     baseline: int = 240         # bars of history for the rolling median / MAD (4 h)
     min_scale: float = 0.05     # floor on the robust scale of window changes, in logit units; stops flat markets from producing huge z
     vol_min_ratio: float = 2.0  # window volume must be >= this many times its usual level for full credit
+    min_volume: float = 100.0   # floor on a window's usual volume, in shares/contracts; stops thin markets from crediting any single trade
     hold: int = 30              # bars after the move at which we check it stuck
     score_threshold: float = 4.0
     cooldown: int = 60          # bars after an alert during which the same market can't fire again
@@ -113,12 +114,12 @@ def score_series(df: pd.DataFrame, params: DetectorParams | None = None) -> pd.D
     if "volume" in out and out["volume"].notna().any():
         vol_win = out["volume"].fillna(0).rolling(p.window).sum()
         usual = vol_win.shift(p.window).rolling(p.baseline, min_periods=p.baseline // 2).median()
-        out["volume_ratio"] = vol_win / usual.clip(lower=1e-9)
+        out["volume_ratio"] = vol_win / usual.clip(lower=p.min_volume)
         # No excess volume (ratio <= 1) earns nothing; vol_min_ratio or more earns full credit.
         out["vol_conf"] = ((out["volume_ratio"] - 1) / (p.vol_min_ratio - 1)).clip(0, 1)
     else:
-        # TODO(ingest): Polymarket prices-history has no volume. Until trades are
-        # pulled, treat volume as neutral so the detector still runs.
+        # No volume at all (old cache rows, hand-built frames): treat it as neutral so the
+        # detector still runs.
         out["volume_ratio"] = np.nan
         out["vol_conf"] = 1.0
 
@@ -173,6 +174,11 @@ def detect_drifts(df: pd.DataFrame, market_id: str = "", params: DetectorParams 
     Catches grinds with no single big jump. The reference mean is zero rather than
     a rolling median: a fair prediction-market price should have no drift, and a
     rolling median would quietly absorb the very trend we want to catch.
+
+    Real money? A grind trades at a normal pace rather than in a burst, so unlike a jump
+    it needs only its usual volume (floored at `min_volume` per `window`) for full credit.
+    The alarm fires when CUSUM level × that credit reaches `cusum_h`, so a grind on an
+    empty book never fires and a thinly traded one fires later.
     """
     p = params or DetectorParams()
     bars = df["price"].resample(f"{p.drift_bar}min").last().dropna()
@@ -181,6 +187,13 @@ def detect_drifts(df: pd.DataFrame, market_id: str = "", params: DetectorParams 
     hist = d.shift(1)
     scale = (MAD_TO_SIGMA * _rolling_mad(hist, p.drift_baseline)).clip(lower=p.min_scale)
     x = (d / scale).where(scale.notna() & hist.rolling(p.drift_baseline, min_periods=16).count().ge(16), 0).fillna(0).values
+
+    has_volume = "volume" in df and df["volume"].notna().any()
+    if has_volume:
+        vol = df["volume"].fillna(0).resample(f"{p.drift_bar}min").sum().reindex(bars.index, fill_value=0)
+        floor = p.min_volume * p.drift_bar / p.window
+        usual = vol.shift(1).rolling(p.drift_baseline, min_periods=16).median().clip(lower=floor).fillna(floor)
+        vol, usual = vol.values, usual.values
 
     spikes: list[Spike] = []
     pos = neg = 0.0
@@ -193,21 +206,29 @@ def detect_drifts(df: pd.DataFrame, market_id: str = "", params: DetectorParams 
             neg_start = t
         pos = max(0.0, pos + x[t] - p.cusum_k)
         neg = max(0.0, neg - x[t] - p.cusum_k)
-        if max(pos, neg) >= p.cusum_h:
-            s0 = pos_start if pos >= neg else neg_start
+        level = max(pos, neg)
+        s0 = pos_start if pos >= neg else neg_start
+        if has_volume:
+            volume_ratio = vol[s0 : t + 1].sum() / usual[s0 : t + 1].sum()
+            vol_conf = min(1.0, volume_ratio)
+        else:
+            volume_ratio, vol_conf = float("nan"), 1.0
+        if level * vol_conf >= p.cusum_h:
+            # Bar s0 is the first *change* in the run, so the move starts at the close before it.
+            b0 = max(0, s0 - 1)
             spikes.append(
                 Spike(
                     market_id=market_id,
                     kind="drift",
-                    start=idx[s0],
+                    start=idx[b0],
                     peak=idx[t],
                     confirmed_at=idx[t],
-                    p_before=float(bars.iloc[s0]),
+                    p_before=float(bars.iloc[b0]),
                     p_after=float(bars.iloc[t]),
-                    z=float(max(pos, neg)),
-                    volume_ratio=float("nan"),
+                    z=float(level),
+                    volume_ratio=float(volume_ratio),
                     persistence=1.0,
-                    score=float(max(pos, neg)),
+                    score=float(level * vol_conf),
                 )
             )
             pos = neg = 0.0

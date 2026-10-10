@@ -52,11 +52,11 @@ live markets:
 
 | Market | Venue | Has volume? | Topic |
 |---|---|---|---|
-| Fed cuts 25 bps at the October 2026 meeting | Polymarket | No | Fed rates |
+| Fed cuts 25 bps at the October 2026 meeting | Polymarket | Yes | Fed rates |
 | Fed upper bound above 4.00% after the October 2026 meeting | Kalshi | Yes | Fed rates |
 | September 2026 CPI rises more than 0.5% | Kalshi | Yes | Inflation |
-| Trump raises tariffs on Canada by October 31 | Polymarket | No | Tariffs |
-| US recession by end of 2026 | Polymarket | No | Recession |
+| Trump raises tariffs on Canada by October 31 | Polymarket | Yes | Tariffs |
+| US recession by end of 2026 | Polymarket | Yes | Recession |
 
 The shutdown market is switched off for now, because no plain shutdown market is trading.
 
@@ -76,9 +76,8 @@ practice market's rows around its jump:
 A normal minute in this market sees about **80 contracts** traded.
 
 - If no one traded in a minute, the last price is copied forward and the volume is set to 0.
-- Kalshi provides volume. Polymarket doesn't, so for Polymarket markets that column is blank, and
-  the "real money?" check in step 3 is skipped (it counts as a pass). Three of the five live markets
-  are on Polymarket.
+- Kalshi includes volume with its prices. Polymarket's price feed doesn't, so for Polymarket we
+  download the list of individual trades separately and add up the shares traded in each minute.
 
 ---
 
