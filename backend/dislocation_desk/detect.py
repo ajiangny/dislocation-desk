@@ -88,12 +88,16 @@ def _rolling_mad(x: pd.Series, n: int) -> pd.Series:
     return x.rolling(n, min_periods=n // 2).apply(mad, raw=True)
 
 
+def robust_scale(x: pd.Series, baseline: int, min_scale: float, lag: int = 1) -> pd.Series:
+    """1.4826 × rolling MAD of `x`, floored at `min_scale`, using only history that ends `lag` bars ago."""
+    return (MAD_TO_SIGMA * _rolling_mad(x.shift(lag), baseline)).clip(lower=min_scale)
+
+
 def robust_z(x: pd.Series, baseline: int, min_scale: float, lag: int = 1) -> pd.Series:
     """(x - rolling median) / (1.4826 × rolling MAD), using only history that ends `lag` bars ago."""
     hist = x.shift(lag)
     med = hist.rolling(baseline, min_periods=baseline // 2).median()
-    scale = (MAD_TO_SIGMA * _rolling_mad(hist, baseline)).clip(lower=min_scale)
-    return (x - med) / scale
+    return (x - med) / robust_scale(x, baseline, min_scale, lag)
 
 
 def score_series(df: pd.DataFrame, params: DetectorParams | None = None) -> pd.DataFrame:

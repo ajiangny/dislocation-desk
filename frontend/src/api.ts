@@ -1,4 +1,14 @@
-import type { Alert, AlertsResponse, DetectorInputs, Explanation, Exposure, Market, Series } from "./types";
+import type {
+  Alert,
+  AlertsResponse,
+  DetectorInputs,
+  EquitySeries,
+  Explanation,
+  Exposure,
+  LeadLag,
+  Market,
+  Series,
+} from "./types";
 
 export const DEFAULT_NEWS_QUERY = '"Federal Reserve" OR Powell';
 
@@ -63,4 +73,22 @@ export function fetchExplanation(marketId: string, alert: Alert, query: string):
 
 export function fetchExposure(eventType: string): Promise<Exposure> {
   return memoised(`exposure:${eventType}`, () => request<Exposure>(`/api/exposure/${encodeURIComponent(eventType)}`));
+}
+
+export function fetchLeadLag(marketId: string, alert: Alert): Promise<LeadLag> {
+  const key = `leadlag:${marketId}:${alert.kind}:${alert.peak}`;
+  return memoised(key, () =>
+    request<LeadLag>("/api/leadlag", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ market_id: marketId, spike: alert }),
+    }),
+  );
+}
+
+export function fetchEquitySeries(marketId: string, ticker: string, signal?: AbortSignal): Promise<EquitySeries> {
+  return request<EquitySeries>(
+    `/api/markets/${encodeURIComponent(marketId)}/equities/${encodeURIComponent(ticker)}/series`,
+    { signal },
+  );
 }

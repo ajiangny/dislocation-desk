@@ -6,10 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Dislocation Desk (Hack Knight 2026, track: *Prediction Markets as a Financial Signal*) watches macro
 prediction markets (Fed, CPI, tariffs, shutdown, recession) on Polymarket and Kalshi, flags the moments
-the odds reprice, explains the move from news in that window, and lists the credit ETFs and companies
-exposed. Two halves: `backend/` (~1200 lines of Python: ingest, detector, explain, expose, FastAPI) and
-`frontend/` (React 19 + TypeScript + Vite, Plotly for the chart). `README.md` holds the pitch and the
-detector write-up.
+the odds reprice, explains the move from news in that window, lists the credit ETFs and companies
+exposed, and measures whether the market **led or lagged** those ETFs. Two halves: `backend/` (~1500
+lines of Python: ingest, detector, explain, expose, leadlag, FastAPI) and `frontend/` (React 19 +
+TypeScript + Vite, Plotly for the charts). `README.md` holds the pitch and the detector write-up.
 
 ## Commands
 
@@ -26,7 +26,8 @@ uvicorn dislocation_desk.api:app --reload --port 8000           # API; serves fr
 python scripts/smoke_test_apis.py         # hit each external API once, print shapes
 python scripts/find_markets.py fed        # Polymarket search -> YES token_id
 python scripts/find_markets.py --kalshi KXFED
-python scripts/pull_data.py --start 2025-12-09 --end 2025-12-11   # or --days 7
+python scripts/pull_data.py --start 2025-12-09 --end 2025-12-11   # or --days 7; also pulls the ETFs (--no-equities / --equities-only)
+python scripts/run_leadlag.py             # lead/lag of every cached spike vs its ETFs, plus the summary (proof slide)
 python scripts/seed_demo_data.py          # synthetic market into the cache (replay/validate only; the API builds demo_market() itself and ignores this row)
 python scripts/run_validation.py          # hit rate / false-alarm rate on known_events.yaml
 
@@ -48,7 +49,8 @@ only the replay clock:
 ```
 Polymarket ─┐
             ├─► ingest/ ─► DuckDB cache ─► detect.py ─┬─► explain.py (GDELT + Gemini) ─┐
-Kalshi ─────┘                                 ▲       └─► expose.py  (EDGAR + ETF map) ┴─► api.py ─► frontend/src
+Kalshi ─────┘                 ▲               ▲       ├─► expose.py  (EDGAR + ETF map) ┼─► api.py ─► frontend/src
+yfinance ───► ingest/equities ┘               │       └─► leadlag.py (ETF reaction)   ─┘
                                               │
                               replay.py (demo clock; the frontend inlines
                               the same confirmed_at filter in lib/replay.ts)    validate.py (proof slide)
@@ -76,7 +78,11 @@ Two contracts hold the pipeline together, and most changes should preserve them:
    one bar apart. Unlike explain/expose, ingest raises on HTTP errors; `pull_data.py` catches per market
    and prints FAILED instead of exiting nonzero. Over the wire (`/api/markets/{id}/series`) the frame is
    three parallel arrays `ts` (ISO UTC), `price`, `volume`, with `volume: null` for a volume-free series
-   and NaN sent as `null` (JSON has no NaN; see `api._num`).
+   and NaN sent as `null` (JSON has no NaN; see `api._num`). **ETFs use the same frame**:
+   `ingest/equities.py` turns yfinance 1-minute bars into `price` (dollars) and `volume`, cached as
+   `equity:<TICKER>` in the same `bars` table. The one difference is that `session_grid` applies
+   `to_grid` *per NYSE session* (09:30–16:00 America/New_York, weekdays, holidays ignored) so a price is
+   never forward-filled across the overnight gap; cached ETF frames contain session bars only.
 2. **`Spike` with `confirmed_at`.** `detect.detect()` returns `Spike` objects whose `confirmed_at` is the
    earliest time the alert could honestly have been shown live, because the persistence test looks `hold`
    bars *into the future* (`confirmed_at` = peak + `hold` bars). `/api/markets/{id}/alerts` returns *all*
@@ -87,7 +93,9 @@ Two contracts hold the pipeline together, and most changes should preserve them:
    `confirmed_at` out accordingly. Two known gaps: drift alerts resample to 15-minute bars labelled by
    the *left* edge, so a drift's `confirmed_at` understates by up to ~14 minutes; and `replay()` runs
    `detect()` once on the full series then reveals by time — that this matches a live truncated run is
-   unverified (TODO at `replay.py:30`).
+   unverified (TODO at `replay.py:30`). **Lead/lag results carry their own `confirmed_at`** (see below)
+   because the ETF search looks `lookaround` minutes past the market peak; the card hides the row and
+   the ETF chart hides the reaction marker until the clock passes it (`revealed()` in `lib/replay.ts`).
 
 ### Detector (`detect.py`)
 
@@ -125,12 +133,64 @@ knowing before editing it:
   `tolerance_min` (60) of the event; drift alerts count too, and uncached events get `fired=None`,
   which `summary()` skips.
 
+### Lead/lag (`leadlag.py`)
+
+Answers "did the market move before or after the ETFs it should hit?" with prices only; news is
+never involved. For one `Spike` and one ETF (session bars only):
+
+- **Two kinds of ETF move.** The intraday move is the `window`-bar log return *within the session*
+  (a session's first `window` bars have none, so the overnight gap never leaks into them), scored
+  with the detector's own `robust_z`. The opening bar instead carries the **gap** (log open minus the
+  previous close), scored against the intraday scale stretched by `sqrt(390 / window)` (one session
+  of diffusion, a heuristic) with its own lower threshold `gap_sig_z` (2.0; there is one gap per
+  session to be wrong about). Intraday needs `sig_z` 3.5: on the cached ETFs a quiet 2-hour window
+  clears 2.5 about 24% of the time and 3.5 about 7%.
+- **Timing is onset against onset, in trading minutes.** The origin is `spike.start` (start of the
+  market move); the ETF reacted at the *first* bar in the search window that clears its threshold;
+  `lag_min` is that bar's position minus the origin's, so it counts session bars and a window that
+  starts at 15:50 ET continues into the next morning (`spans_close`) rather than being cut at the
+  close. Positive = the ETF moved after the market. A reaction inside the first `window` bars after
+  an open (other than the gap) is first visible at bar `window`.
+- **After hours.** A market onset outside 09:30–16:00 ET is measured from the *next open* and
+  flagged `after_hours`; the gap at that open is the first candidate (lag 0). An opening gap that
+  precedes an in-session spike counts as the ETF leading (negative lag).
+- **`z`/`ret`/`consistent`** come from the first reacting run, so the sign belongs to the move that
+  set the timing. The direction check needs no NLP: `expected_move = market direction ×
+  markets.yaml event_sign × exposure.yaml expected[etf]` versus `sign(ret)`. `exposure.yaml`
+  defines the *event* per type (fed_rates = rate-cut odds, inflation = hotter CPI, …) and
+  `event_sign` says how a market's YES price maps to it (`fed-oct-hold` is −1: YES = hold).
+- **`status`** separates `reacted`, `quiet` (enough bars, nothing unusual) and `no_data` (fewer than
+  `min_bars` scored bars after the origin: not cached, a holiday, the cache ends early). The card
+  shows "no data" and the ETF panel is replaced by a caption when the ETF bars do not overlap the
+  market window.
+- **`confirmed_at`** is the timestamp of the last bar searched (next morning if the window spans the
+  close), never earlier than the spike's own; nothing in the result depends on later data.
+- **Verdict per spike** (`lead_lag`): needs `min_reactions` (2, or all configured when fewer)
+  reacting ETFs, else `no equity move`; all `no_data` → `no data`; an after-hours spike with
+  reactions → `market led (overnight)` (the market moved while stocks were closed); otherwise the
+  median lag → `market led` / `market lagged` / `concurrent` (±2 trading minutes). `summary()`
+  counts the buckets for the proof slide (`scripts/run_leadlag.py`); its median lag is in-session only.
+- **Known limits.** One opening gap answers every overnight spike that preceded it, so two markets
+  that moved the same night share a reaction (the Oct 7 cache week does exactly this). The gap scale
+  is a heuristic. A quiet window still clears 3.5 by chance in one ETF of five or six about a third of
+  the time, which is what `min_reactions` guards against. Tunables live in `LeadLagParams`.
+  Cross-correlation over lags was rejected: the market series is bursty and forward-filled, so
+  1-minute diffs are mostly zero.
+- **Synthetic demo.** `demo_equity()` ETFs start moving 6–20 minutes after the demo jump's onset
+  (`DEMO_REACTIONS` in `synthetic.py`; XLF stays flat on purpose), which is why `demo_market()`
+  starts at 03:00 UTC so the jump lands in the session. The demo drift fires after the close, so its
+  lead/lag `confirmed_at` is past the end of the demo series and its card reads "Watching ETFs…"
+  for the whole replay; that is honest, not a bug.
+
 ### API (`api.py`) and frontend
 
 `api.py` is a thin FastAPI layer; it owns no logic beyond JSON shaping and caching. Routes:
 `GET /api/markets` (cached markets from `markets.yaml` plus the synthetic demo, always last),
 `GET /api/markets/{id}/series`, `GET /api/markets/{id}/alerts?window&score_threshold&hold&vol_min_ratio`,
-`POST /api/explain {market_id, spike, query}`, `GET /api/exposure/{event_type}`. Series, explanations
+`POST /api/explain {market_id, spike, query}`, `GET /api/exposure/{event_type}` (now includes
+`expected`), `GET /api/markets/{id}/equities/{ticker}/series` (market-scoped so `synthetic-demo` serves
+`demo_equity()` and real markets read `equity:<TICKER>` from the cache; 404 when uncached) and
+`POST /api/leadlag {market_id, spike}`. Series, equity series, lead/lag, explanations
 and exposure are `lru_cache`'d per process, so a cache re-pull (`pull_data.py`) needs a server restart to
 show up, and EDGAR is hit once per event type instead of once per card per tick. The frontend memoises
 explain/exposure again per alert key in `api.ts`, so replay ticks never refetch. `Spike` round-trips
@@ -138,11 +198,17 @@ through `spike_to_json`/`spike_from_json`; the explain endpoint takes the alert 
 If `frontend/dist` exists at import time the API mounts it at `/`, so one process serves the demo.
 
 Frontend state lives in `App.tsx` (market, detector inputs, news query, replay `pos`/`playing`/`speed`,
-theme); `?market=<id>` in the URL selects a market and is kept in sync. Components are function
-components with hooks: `Sidebar`, `ReplayControls`, `MarketChart` (imperative `Plotly.react` inside a
-`useEffect`; colors are read from CSS custom properties so the chart follows the light/dark tokens in
-`styles.css`), `AlertCard` (fetches its own explanation and exposure once). Pure helpers and their
-tests are in `src/lib/replay.ts`.
+theme, and the ETF panel's `etf`/`etfPicked`/`equity`/`leadlag`); `?market=<id>` in the URL selects a
+market and is kept in sync. Components are function components with hooks: `Sidebar`, `ReplayControls`,
+`MarketChart` (imperative `Plotly.react` inside a `useEffect`; colors are read from CSS custom properties
+so the chart follows the light/dark tokens in `styles.css`), `EquityChart` (same pattern, under the
+market chart on the same x-range; shows the focus alert's market peak and, once revealed, the ETF's
+reaction; the ETF defaults to the one that reacted most via `bestTicker` until the user clicks a chip),
+`AlertCard` (fetches its own explanation, exposure and lead/lag once; the lead/lag row needs `now`).
+`App.tsx` fetches lead/lag for every visible alert (keyed on the set of visible alert keys, so replay
+frames do not re-run it) and the "focus alert" is the clicked one, else the latest visible alert whose
+lead/lag is already revealed, else the latest visible. Pure helpers and their tests are in
+`src/lib/replay.ts`.
 
 ### External services and their failure mode
 
@@ -186,9 +252,12 @@ cached markets are listed first so they take the default slot once they exist.
 
 ## Current state
 
-Working and tested: `detect.py`, `replay.py`, `ingest/cache.py`, `api.py`, the frontend on synthetic and
-cached data. Kalshi ingest is live-tested (dollar-string prices, `volume_fp`). Five markets are cached
-locally as of 2026-10-09 (`backend/data/cache.duckdb` is gitignored; re-pull with `pull_data.py`).
+Working and tested: `detect.py`, `replay.py`, `ingest/cache.py`, `ingest/equities.py`, `leadlag.py`,
+`api.py`, the frontend on synthetic and cached data. Kalshi ingest is live-tested (dollar-string prices, `volume_fp`). Five markets and 17 ETFs are
+cached locally as of 2026-10-10 (`backend/data/cache.duckdb` is gitignored; re-pull with `pull_data.py`;
+yfinance only serves 1-minute bars for the last ~30 days, so the ETF side of an older demo window
+cannot be re-pulled). On that week all three real spikes fired outside NYSE hours, so their lead/lag is
+measured from the next open: two read `market led (overnight)`, one has too few reacting ETFs.
 
 Not yet live-verified: `explain.headlines` returned no articles in a manual probe (GDELT rate limit or
 query shape, unclear), `expose.edgar_companies` has returned `[]` so far, `validation/known_events.yaml`

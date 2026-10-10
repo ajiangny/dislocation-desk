@@ -106,19 +106,20 @@ backend/
   dislocation_desk/
     api.py                    FastAPI app the frontend talks to (also serves frontend/dist)
     detect.py                 spike detector (jump + drift)
-    ingest/                   polymarket.py, kalshi.py, cache.py (DuckDB)
+    ingest/                   polymarket.py, kalshi.py, equities.py (yfinance, NYSE sessions), cache.py (DuckDB)
     explain.py                GDELT headlines + Gemini "why"
     expose.py                 ETF map + EDGAR full-text search
+    leadlag.py                did the market lead or lag its ETFs? (own confirmed_at)
     replay.py                 replay clock (the frontend applies the same confirmed_at rule)
     validate.py               hit rate / false-alarm rate on known events
     synthetic.py              synthetic markets for tests and the empty-cache demo
-  scripts/                    smoke_test_apis, find_markets, pull_data, seed_demo_data, run_validation
+  scripts/                    smoke_test_apis, find_markets, pull_data, seed_demo_data, run_validation, run_leadlag
   validation/known_events.yaml  events for the proof slide
   tests/                      detector, cache/replay and API tests
 frontend/                     React 19 + TypeScript + Vite
   src/App.tsx                 state: market, detector params, replay clock
-  src/api.ts                  typed client for /api; memoises explain + exposure per alert
-  src/components/             Sidebar, ReplayControls, MarketChart (Plotly), AlertCard
+  src/api.ts                  typed client for /api; memoises explain, exposure and lead/lag per alert
+  src/components/             Sidebar, ReplayControls, MarketChart + EquityChart (Plotly), AlertCard
   src/lib/replay.ts           visibleAlerts (confirmed_at <= now) and formatters, unit-tested
 ```
 
@@ -141,4 +142,7 @@ frontend/                     React 19 + TypeScript + Vite
 - **SEC EDGAR full-text search:** `efts.sec.gov/LATEST/search-index?q=...&forms=10-K`. Needs a `User-Agent` with a name and email.
 - **Gemini API (free tier):** the explainer defaults to `gemini-flash-lite-latest` (override with `GEMINI_MODEL`).
   Get a free key at aistudio.google.com/apikey.
-- **yfinance** (for the lead/lag stretch slide): 1-minute bars only cover about the last 7 days.
+- **yfinance** (ETF bars for lead/lag): 1-minute bars only exist for the last ~30 days, 7 days per request.
+  `pull_data.py` pulls every ETF in `exposure.yaml` for the same window as the markets; `run_leadlag.py`
+  prints, per spike, whether the market led or lagged each ETF and by how many trading minutes
+  (onset vs onset; spikes outside NYSE hours are measured from the next open as "market led (overnight)").
