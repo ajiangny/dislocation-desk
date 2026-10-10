@@ -1,18 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { DEFAULT_NEWS_QUERY, fetchAlerts, fetchMarkets, fetchSeries } from "./api";
+import { autoNewsQuery, fetchAlerts, fetchMarkets, fetchSeries } from "./api";
 import AlertCard from "./components/AlertCard";
-import MarketOverview from "./components/MarketOverview";
 import MarketChart from "./components/MarketChart";
 import ReplayControls from "./components/ReplayControls";
 import Sidebar from "./components/Sidebar";
 import { alertKey, clamp, fmtClock, visibleAlerts } from "./lib/replay";
+import { useMarketSummaries } from "./lib/summaries";
 import { applyTheme, initialTheme, type Theme } from "./lib/theme";
 import type { AlertsResponse, DetectorInputs, Market, Series } from "./types";
 
-const DEFAULT_PARAMS: DetectorInputs = { window: 15, score_threshold: 4, hold: 30, vol_min_ratio: 2 };
-/** `speed` is bars per 150 ms, the old tick rate; the clock now advances every animation frame. */
-const MS_PER_SPEED_UNIT = 150;
+const DEFAULT_PARAMS: DetectorInputs = {
+  window: 15,
+  score_threshold: 4,
+  hold: 30,
+  vol_min_ratio: 2,
+};
+/** At 1x a full replay lasts this long, whatever the market's length; Nx plays N times faster. */
+const REPLAY_MS_AT_1X = 60_000;
+const SPEEDS = [1, 2, 5, 10];
 
 /** `?market=<id>` makes a demo day linkable; falls back to the first cached market. */
 function marketFromUrl(): string {
@@ -30,8 +36,10 @@ export default function App() {
   const [markets, setMarkets] = useState<Market[]>([]);
   const [marketId, setMarketId] = useState<string>(marketFromUrl);
   const [params, setParams] = useState<DetectorInputs>(DEFAULT_PARAMS);
-  const [newsQuery, setNewsQuery] = useState(DEFAULT_NEWS_QUERY);
-  const [speed, setSpeed] = useState(15);
+  const [newsOverride, setNewsOverride] = useState("");
+  const [speed, setSpeed] = useState(1);
+
+  const summaries = useMarketSummaries(markets, params);
 
   const [series, setSeries] = useState<Series | null>(null);
   const [alertsResp, setAlertsResp] = useState<AlertsResponse | null>(null);
@@ -39,7 +47,10 @@ export default function App() {
 
   const [pos, setPos] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [picked, setPicked] = useState<{ key: string; at: { x: number; y: number } } | null>(null);
+  const [picked, setPicked] = useState<{
+    key: string;
+    at: { x: number; y: number };
+  } | null>(null);
 
   useEffect(() => applyTheme(theme), [theme]);
 
@@ -48,7 +59,9 @@ export default function App() {
     fetchMarkets()
       .then((ms) => {
         setMarkets(ms);
-        setMarketId((cur) => (ms.some((m) => m.id === cur) ? cur : (ms[0]?.id ?? "")));
+        setMarketId((cur) =>
+          ms.some((m) => m.id === cur) ? cur : (ms[0]?.id ?? ""),
+        );
       })
       .catch((e: Error) => setError(e.message));
   }, []);
@@ -89,6 +102,8 @@ export default function App() {
 
   // Replay clock.
   const n = series?.ts.length ?? 0;
+  const baseline = alertsResp?.params.baseline ?? 240;
+  const minPos = Math.min(baseline, n);
   useEffect(() => {
     if (!playing || n === 0) return;
     let raf = 0;
@@ -96,23 +111,34 @@ export default function App() {
     const frame = (t: number) => {
       const dt = t - last;
       last = t;
-      setPos((p) => Math.min(n, p + (speed * dt) / MS_PER_SPEED_UNIT));
+      setPos((p) =>
+        Math.min(n, p + ((n - minPos) / REPLAY_MS_AT_1X) * speed * dt),
+      );
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
-  }, [playing, speed, n]);
+  }, [playing, speed, n, minPos]);
   useEffect(() => {
     if (playing && pos >= n) setPlaying(false);
   }, [playing, pos, n]);
 
   const market = markets.find((m) => m.id === marketId);
-  const baseline = alertsResp?.params.baseline ?? 240;
-  const minPos = Math.min(baseline, n);
+  const autoQuery = autoNewsQuery(market?.event_type);
+  const newsQuery = newsOverride.trim() || autoQuery;
+  const startReplay = () => {
+    setPos(minPos);
+    setPlaying(true);
+  };
   const now = series?.ts[Math.floor(clamp(pos, 1, n)) - 1];
-  const alerts = useMemo(() => visibleAlerts(alertsResp?.alerts ?? [], now), [alertsResp, now]);
+  const alerts = useMemo(
+    () => visibleAlerts(alertsResp?.alerts ?? [], now),
+    [alertsResp, now],
+  );
 
-  const selected = picked ? alerts.find((a) => alertKey(a) === picked.key) : undefined;
+  const selected = picked
+    ? alerts.find((a) => alertKey(a) === picked.key)
+    : undefined;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setPicked(null);
@@ -128,44 +154,62 @@ export default function App() {
         onMarket={setMarketId}
         params={params}
         onParams={setParams}
-        newsQuery={newsQuery}
-        onNewsQuery={setNewsQuery}
-        speed={speed}
-        onSpeed={setSpeed}
+        newsQuery={newsOverride}
+        autoQuery={autoQuery}
+        onNewsQuery={setNewsOverride}
+        summaries={summaries}
       />
       <main className="main">
         <div className="header">
-          <div>
-            <h1>Dislocation Desk</h1>
-            <p className="subtitle">Which event odds just broke, why, and which names are exposed.</p>
+          <span className="header-market">{market?.name ?? ""}</span>
+          <div className="header-actions">
+            <div className="replay-bar">
+              <button
+                className="btn primary"
+                onClick={startReplay}
+                disabled={playing}
+              >
+                ▶ Play
+              </button>
+              <button
+                className="btn"
+                onClick={() => setPlaying(false)}
+                disabled={!playing}
+              >
+                ⏹ Stop
+              </button>
+              <div
+                className="speed-pills"
+                role="group"
+                aria-label="Replay speed"
+              >
+                {SPEEDS.map((x) => (
+                  <button
+                    key={x}
+                    className={`pill${speed === x ? " on" : ""}`}
+                    onClick={() => setSpeed(x)}
+                  >
+                    {x}×
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button
+              className="btn ghost"
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            >
+              {theme === "dark" ? "☀ Light" : "☾ Dark"}
+            </button>
           </div>
-          <button className="btn ghost" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
-            {theme === "dark" ? "☀ Light" : "☾ Dark"}
-          </button>
         </div>
 
-        <MarketOverview markets={markets} marketId={marketId} params={params} onMarket={setMarketId} />
-
         {error && <div className="panel status error">{error}</div>}
-        {!series && !error && <div className="panel status">Loading market…</div>}
+        {!series && !error && (
+          <div className="panel status">Loading market…</div>
+        )}
 
         {series && market && (
           <>
-            <ReplayControls
-              pos={Math.floor(pos)}
-              min={minPos}
-              max={n}
-              playing={playing}
-              onPlay={() => {
-                setPos(minPos);
-                setPlaying(true);
-              }}
-              onStop={() => setPlaying(false)}
-              onSeek={(p) => {
-                setPlaying(false);
-                setPos(p);
-              }}
-            />
             <div className="chart-wrap">
               <MarketChart
                 series={series}
@@ -175,13 +219,37 @@ export default function App() {
                 onAlertClick={(a, at) => setPicked({ key: alertKey(a), at })}
               />
               {selected && picked && (
-                <div className="popover" style={{ left: `clamp(236px, ${picked.at.x}px, calc(100% - 236px))`, top: picked.at.y }}>
-                  <AlertCard alert={selected} market={market} newsQuery={newsQuery} onClose={() => setPicked(null)} />
+                <div
+                  className="popover"
+                  style={{
+                    left: `clamp(236px, ${picked.at.x}px, calc(100% - 236px))`,
+                    top: picked.at.y,
+                  }}
+                >
+                  <AlertCard
+                    alert={selected}
+                    market={market}
+                    newsQuery={newsQuery}
+                    onClose={() => setPicked(null)}
+                  />
                 </div>
               )}
             </div>
+            <ReplayControls
+              pos={Math.floor(pos)}
+              min={minPos}
+              max={n}
+              playing={playing}
+              onPlay={startReplay}
+              onStop={() => setPlaying(false)}
+              onSeek={(p) => {
+                setPlaying(false);
+                setPos(p);
+              }}
+            />
             <div className="caption">
-              Replay clock: {now ? fmtClock(now) : "—"} UTC · {alerts.length} alert(s) so far
+              Replay clock: {now ? fmtClock(now) : "—"} UTC · {alerts.length}{" "}
+              alert(s) so far
               {alertsResp === null && " · running detector…"}
             </div>
           </>

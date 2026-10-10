@@ -1,19 +1,12 @@
-import { useEffect, useState } from "react";
-
-import { fetchAlerts, fetchSeries } from "../api";
 import { pct } from "../lib/replay";
-import type { Alert, DetectorInputs, Market, Series } from "../types";
+import type { Summary } from "../lib/summaries";
+import type { Market } from "../types";
 
 interface Props {
   markets: Market[];
   marketId: string;
-  params: DetectorInputs;
+  data: Record<string, Summary>;
   onMarket: (id: string) => void;
-}
-
-interface Summary {
-  series: Series;
-  alerts: Alert[];
 }
 
 const W = 120;
@@ -33,26 +26,7 @@ function sparkPoints(price: number[]): string {
 }
 
 /** One tile per market: sparkline, latest odds, and a badge when the detector fired. */
-export default function MarketOverview({ markets, marketId, params, onMarket }: Props) {
-  const [data, setData] = useState<Record<string, Summary>>({});
-
-  useEffect(() => {
-    const ctl = new AbortController();
-    const t = setTimeout(() => {
-      markets.forEach((m) => {
-        Promise.all([fetchSeries(m.id, ctl.signal), fetchAlerts(m.id, params, ctl.signal)])
-          .then(([series, resp]) => setData((d) => ({ ...d, [m.id]: { series, alerts: resp.alerts } })))
-          .catch(() => {
-            /* a tile without data just stays in its loading state */
-          });
-      });
-    }, 250);
-    return () => {
-      clearTimeout(t);
-      ctl.abort();
-    };
-  }, [markets, params]);
-
+export default function MarketOverview({ markets, marketId, data, onMarket }: Props) {
   if (markets.length === 0) return null;
 
   return (
